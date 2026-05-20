@@ -36,7 +36,12 @@ def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
         return default
-    return int(raw)
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise ValueError(
+            f"환경변수 {name} 은 정수여야 합니다 (실제 값: {raw!r})"
+        ) from e
 
 
 SEED_COUNT     = _env_int("SEED_COUNT", 5000)
