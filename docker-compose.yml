@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: event-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # 컨테이너 첫 기동 시 db/init/*.sql 이 자동 실행됨
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # psycopg 가 실제로 연결 가능한 상태인지 확인.
+      # depends_on: service_healthy 와 함께 동작.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  generator:
+    build: ./generator
+    container_name: event-generator
+    depends_on:
+      postgres:
+        # postgres healthcheck 통과 후 generator 시작
+        condition: service_healthy
+    environment:
+      # 컨테이너 간 통신은 서비스 이름으로 (localhost 아님)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      SEED_COUNT: ${SEED_COUNT:-5000}
+      USER_COUNT: ${USER_COUNT:-100}
+      SEED_DAYS: ${SEED_DAYS:-7}
+      STREAM_MIN_RPS: ${STREAM_MIN_RPS:-2}
+      STREAM_MAX_RPS: ${STREAM_MAX_RPS:-5}
+      BATCH_SIZE: ${BATCH_SIZE:-1000}
+    restart: on-failure
+
+volumes:
+  postgres_data:
