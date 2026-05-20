@@ -16,6 +16,43 @@
 
 ---
 
+## 실행 방법
+
+### 사전 요구사항
+- Docker 20+
+- Docker Compose v2
+
+### 실행
+
+```bash
+cp .env.example .env       # 환경변수 파일 준비 (필요 시 값 수정)
+docker compose up -d       # 백그라운드 실행
+```
+
+`postgres` healthcheck 통과 후 `generator` 가 자동으로 시작된다.
+
+### 상태 확인
+
+```bash
+docker compose ps                       # 컨테이너 상태
+docker compose logs -f generator        # 생성기 실시간 로그
+```
+
+### 적재 데이터 확인
+
+```bash
+docker compose exec postgres psql -U eventuser -d eventdb \
+  -c "SELECT event_type, COUNT(*) FROM events GROUP BY event_type ORDER BY event_type;"
+```
+
+### 정리
+
+```bash
+docker compose down -v   # 볼륨까지 삭제 (다음 기동 시 스키마 다시 적용됨)
+```
+
+---
+
 ## 이벤트 스키마
 
 모든 이벤트는 단일 `events` 테이블에 저장한다. 공통 필드는 컬럼으로 분리하고, 이벤트 타입에 따라 달라지는 가변 필드만 `properties` 컬럼(JSONB)에 담는다.
