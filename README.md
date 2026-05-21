@@ -16,6 +16,33 @@
 
 ---
 
+## 프로젝트 구조
+
+```
+event-log-pipeline/
+├── README.md
+├── docker-compose.yml
+├── .env.example
+├── generator/                # 이벤트 생성기 (Python)
+│   ├── Dockerfile
+│   ├── main.py               # 시드 + 스트림 진입점
+│   ├── events.py             # generate_event / pick_event_type
+│   ├── db.py                 # PostgreSQL 적재 (batch + retry)
+│   └── requirements.txt
+├── db/
+│   ├── init/                 # docker-entrypoint-initdb.d 자동 실행
+│   │   └── 01_schema.sql
+│   └── queries/              # 분석 쿼리 4개
+├── grafana/
+│   └── provisioning/         # 데이터소스 + 대시보드 자동 로딩
+├── docs/
+│   ├── aws-design.md         # AWS 아키텍처 설계
+│   └── grafana-dashboard.png # 대시보드 스크린샷
+└── tests/                    # pytest 단위 테스트
+```
+
+---
+
 ## 실행 방법
 
 ### 사전 요구사항
@@ -294,3 +321,52 @@ LIMIT 10;
 - CloudWatch + SNS 로 모니터링/알림 자동화
 
 > 상세 설계 · 데이터 플로우 · 대안 분석 · 비용은 [`docs/aws-design.md`](docs/aws-design.md) 참조.
+
+---
+
+## 구현하면서 고민한 점
+
+### 1. 스키마 설계 — 단일 테이블 + JSONB 절충 (옵션 C)
+
+세 가지 방향을 두고 고민했다.
+- **A: 전부 JSONB** — 단순하지만 분석마다 JSONB 파싱 필요 → 과제 의도(필드 분리)와 어긋남
+- **B: 이벤트 타입별 테이블** — 통합 분석마다 UNION, 새 타입 추가 시 테이블 신설 → 과도한 정규화
+- **C: 공통 컬럼 분리 + 가변 필드만 JSONB** — 인덱스 효율 + 유연성. **채택**
+
+### 2. 이벤트 생성 — 시드 + 스트림 이중 단계
+
+평가자가 `docker compose up` 직후 보게 될 화면을 우선 고려했다.
+- **시드만 있으면** 정적 (실시간성 X)
+- **스트림만 있으면** 처음 몇 분간 차트 비어 있음
+- **둘 다 → 풍부한 7일치 데이터 + 실시간 흐름** 동시 제공
+
+80/15/5 가중치는 균등 분포의 비현실성을 피하고 "에러율 5%", "전환율 ~18%" 같은 의미 있는 분석을 가능하게 했다.
+
+### 3. `docker compose up` 한 번으로 모든 게 동작
+
+평가자 동선을 최소화하는 데 집중했다.
+- **PostgreSQL 자동 스키마 초기화** (`docker-entrypoint-initdb.d`)
+- **Generator 자동 시드 + 스트림** (`depends_on: service_healthy`)
+- **Grafana provisioning** — 데이터소스 + 대시보드 모두 yaml/json 자동 로딩
+- **익명 Viewer 접속** — 로그인 절차 없이 즉시 대시보드 확인
+
+결과: `docker compose up -d` → `http://localhost:3000` 한 줄로 데이터 + 분석 + 시각화 모두 동작.
+
+### 4. 현재는 단순 직결, AWS 는 메시지 큐 도입
+
+본 과제 규모(시드 5,000 + 스트림 2~5 RPS)에서는 generator → DB 직결로 충분.
+하지만 운영 환경을 가정하면 단일 머신/직결 구조는:
+- DB 장애가 generator 로 즉시 전파
+- 멀티 컨슈머/리플레이 불가능
+- 백프레셔 처리 못함
+
+AWS 설계에서는 **Kinesis Data Streams** 를 디커플링 계층으로 두고, hot path (RDS) + cold path (S3) 를 분리했다 (`docs/aws-design.md`).
+
+### 5. 의도적 단순화 — 세션 모델
+
+매 이벤트마다 새 `session_id` 를 발급한다. 실제 서비스라면 사용자가 머무는 동안 같은 세션을 유지해야 한다.
+- 본 과제 분석 쿼리는 세션 유지 모델 없이도 충분한 의미 전달 가능
+- 상태 관리 도입은 복잡도 vs 가치 균형에서 단순화 선택
+- 시간 더 있으면 개선할 1순위 항목
+
+→ **모든 단순화는 의도된 것** — 모르는 게 아니라 트레이드오프 결과.
