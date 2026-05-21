@@ -335,6 +335,40 @@ LIMIT 10;
 
 ---
 
+## 테스트
+
+테스트는 책임을 둘로 분리했다.
+
+### 단위 테스트 — `tests/test_events.py`
+
+외부 의존성 없는 순수 로직(이벤트 생성 / 타입별 properties / 가중치 분포) 검증.
+
+```bash
+pytest tests/test_events.py -v
+```
+
+### 통합 테스트 — `tests/test_integration.py`
+
+`testcontainers` 로 실 PostgreSQL 컨테이너를 자동으로 띄워 스키마 → 적재 → 집계까지 end-to-end 검증.
+mock 대신 실 DB 를 쓰는 이유: SQL 제약 / JSONB / 트랜잭션 같은 DB-side 동작은 mock 으로 검증하면 prod 와 divergence 위험이 있다.
+
+```bash
+pip install -r requirements-dev.txt   # testcontainers 설치
+pytest tests/test_integration.py -v
+```
+
+- 첫 실행 시 `postgres:16-alpine` 이미지 pull (~30초)
+- 이후 실행 ~10초
+
+### 검증 범위
+
+| 종류 | 검증 |
+|------|------|
+| 단위 | 필수 필드 / 타입별 properties / 가중치 분포(10,000건) |
+| 통합 | 단일 INSERT / batch 1000건 / JSONB round-trip / 5000건 분포 / CHECK 위반 시 롤백 |
+
+---
+
 ## 구현하면서 고민한 점
 
 ### 1. 스키마 설계 — 단일 테이블 + JSONB 절충 (옵션 C)
