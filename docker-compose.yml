@@ -52,7 +52,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # 익명 접근 + Viewer 권한 (평가자가 로그인 없이 대시보드 확인)
+      # 익명 접근 + Viewer 권한 (로그인 없이 대시보드 확인)
       GF_AUTH_ANONYMOUS_ENABLED: ${GF_AUTH_ANONYMOUS_ENABLED:-true}
       GF_AUTH_ANONYMOUS_ORG_ROLE: ${GF_AUTH_ANONYMOUS_ORG_ROLE:-Viewer}
       # admin 계정 (관리 작업용)
