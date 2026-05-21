@@ -271,3 +271,26 @@ LIMIT 10;
 - **provisioning 자동화**: 데이터소스/대시보드를 yaml + JSON 으로 git 관리. 컨테이너 재배포 시에도 동일 상태 복원
 - **분석 쿼리와 1:1 매핑**: 각 패널 SQL 은 `db/queries/` 의 4개 쿼리와 동일 구조 — 시각화 결과가 곧 SQL 결과
 - **익명 접속**: 평가/공유 친화. 권한은 Viewer 로 제한 → 데이터 수정/삭제 불가
+
+---
+
+## AWS 설계 (선택 과제 B)
+
+본 파이프라인을 AWS 운영 환경으로 옮긴다면 어떻게 설계할지에 대한 답안.
+
+### 핵심 매핑
+
+| 현재 | AWS |
+|------|-----|
+| `generator` 컨테이너 | ECS Fargate |
+| (직접 적재) | Kinesis Data Streams → Firehose |
+| `postgres` 컨테이너 | RDS PostgreSQL (Multi-AZ) |
+| `grafana` 컨테이너 | Amazon Managed Grafana |
+| (없음) | CloudWatch + SNS, Secrets Manager |
+
+### 핵심 변경 포인트
+- 생성기-DB 사이에 **메시지 큐 (Kinesis Data Streams)** 도입 → 디커플링 / 버퍼링 / 재처리
+- **Managed 서비스** 우선 사용 → 운영 부담 최소화
+- CloudWatch + SNS 로 모니터링/알림 자동화
+
+> 상세 설계 · 데이터 플로우 · 대안 분석 · 비용은 [`docs/aws-design.md`](docs/aws-design.md) 참조.
