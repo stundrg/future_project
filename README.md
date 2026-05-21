@@ -119,7 +119,7 @@ JSON을 통째로 저장하면 분석마다 JSONB 파싱이 필요하고, 이벤
 ## 분석 쿼리
 
 분포 · 추이 · 품질 · 사용자 4가지 관점을 한 번에 보기 위해 다음 4개 쿼리를 정의했다.
-전체 SQL은 `db/queries/` 에 있고, 다음 단계의 Grafana 대시보드 4개 패널과 1:1 매핑된다.
+전체 SQL은 `db/queries/` 에 있고, Grafana 대시보드 4개 패널과 1:1 매핑된다.
 
 ### 실행 방법
 
@@ -168,7 +168,7 @@ ORDER BY event_count DESC;
 
 ### 2. 시간대별 이벤트 추이 (최근 7일, 시간 단위)
 
-시계열 패턴 파악 — Grafana time series 패널의 입력 쿼리로 사용 예정.
+시계열 패턴 파악 — Grafana time series 패널의 입력 쿼리로 사용된다.
 
 ```sql
 -- db/queries/02_hourly_trend.sql
