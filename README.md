@@ -322,6 +322,17 @@ LIMIT 10;
 
 > 상세 설계 · 데이터 플로우 · 대안 분석 · 비용은 [`docs/aws-design.md`](docs/aws-design.md) 참조.
 
+### (보너스) Kubernetes 매핑
+
+선택 과제는 AWS 로 충족했지만, 두 번째 관점 사고를 정리하는 차원에서 K8s 운영 환경 매핑도 [`docs/k8s-design.md`](docs/k8s-design.md) 에 별도 문서로 작성했다 (매니페스트 작성 없이 설계만).
+
+| 컴포넌트 | K8s 리소스 |
+|----------|-----------|
+| generator | Deployment |
+| postgres | StatefulSet + PVC |
+| grafana | Deployment + PVC |
+| 환경변수 / 비밀번호 | ConfigMap / Secret 분리 |
+
 ---
 
 ## 구현하면서 고민한 점
