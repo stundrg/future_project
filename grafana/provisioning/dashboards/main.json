@@ -1,0 +1,103 @@
+{
+  "uid": "event-log-pipeline",
+  "title": "Event Log Pipeline",
+  "tags": ["event-log"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "type": "piechart",
+      "title": "이벤트 타입별 분포",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT event_type, COUNT(*) AS value FROM events GROUP BY event_type ORDER BY value DESC;"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "right", "showLegend": true },
+        "pieType": "pie",
+        "displayLabels": ["name", "percent"],
+        "reduceOptions": { "values": true, "calcs": [], "fields": "" }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "시간대별 이벤트 추이",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_trunc('hour', created_at) AS time, event_type AS metric, COUNT(*) AS value FROM events WHERE $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10 }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "에러율",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE event_type = 'error') / NULLIF(COUNT(*), 0), 2) AS error_rate FROM events;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" }
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "상위 활성 유저 Top 10",
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT user_id, COUNT(*) AS event_count, COUNT(DISTINCT session_id) AS session_count, MAX(created_at) AS last_seen_at FROM events GROUP BY user_id ORDER BY event_count DESC LIMIT 10;"
+        }
+      ],
+      "options": { "showHeader": true }
+    }
+  ]
+}

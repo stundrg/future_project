@@ -45,6 +45,11 @@ docker compose exec postgres psql -U eventuser -d eventdb \
   -c "SELECT event_type, COUNT(*) FROM events GROUP BY event_type ORDER BY event_type;"
 ```
 
+### Grafana 대시보드 접속
+
+브라우저에서 `http://localhost:3000` 접속 — 익명 Viewer 로 로그인 없이 바로 확인.
+자세한 패널 구성과 스크린샷은 아래 "시각화" 섹션 참조.
+
 ### 정리
 
 ```bash
@@ -231,3 +236,38 @@ LIMIT 10;
 ```
 
 → `event_count == session_count` 인 것은 현재 생성기가 매 이벤트마다 새 `session_id` 를 발급하기 때문(단순성 우선). 세션 유지 모델은 향후 개선 항목.
+
+---
+
+## 시각화
+
+`docker compose up` 직후 Grafana 가 데이터소스와 대시보드를 자동 로딩한다 (provisioning 기반).
+
+### 접속
+
+- URL: `http://localhost:3000`
+- 익명 접속 (Viewer 권한) — 로그인 불필요
+- 관리자 계정: `admin / admin` (`.env` 에서 변경 가능)
+
+### 대시보드 미리보기
+
+![Grafana Dashboard](docs/grafana-dashboard.png)
+
+### 패널 구성
+
+| # | 패널 | 시각화 | 데이터 |
+|---|------|--------|--------|
+| 1 | 이벤트 타입별 분포 | Pie chart | `page_view` / `purchase` / `error` 비율 |
+| 2 | 시간대별 이벤트 추이 | Time series | 시간 단위 발생량 (멀티 시리즈) |
+| 3 | 에러율 | Stat | 단일 숫자, 5/10% threshold 컬러 |
+| 4 | 상위 활성 유저 Top 10 | Table | `event_count` / `session_count` / `last_seen_at` |
+
+- **자동 새로고침**: 30초
+- **기본 time range**: 최근 7일 (우측 상단에서 변경 가능)
+- **`$__timeFilter` 매크로**: Time series 패널은 대시보드 time picker 와 자동 연동
+
+### 설계 의도
+
+- **provisioning 자동화**: 데이터소스/대시보드를 yaml + JSON 으로 git 관리. 컨테이너 재배포 시에도 동일 상태 복원
+- **분석 쿼리와 1:1 매핑**: 각 패널 SQL 은 `db/queries/` 의 4개 쿼리와 동일 구조 — 시각화 결과가 곧 SQL 결과
+- **익명 접속**: 평가/공유 친화. 권한은 Viewer 로 제한 → 데이터 수정/삭제 불가
