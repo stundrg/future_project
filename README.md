@@ -103,6 +103,8 @@ for f in db/queries/*.sql; do
 done
 ```
 
+> 일괄 실행 스크립트는 Linux/macOS 기준. Windows에서는 PowerShell 또는 WSL 사용 권장.
+
 ---
 
 ### 1. 이벤트 타입별 발생 횟수 + 비율
@@ -173,15 +175,17 @@ ORDER BY hour DESC, event_type;
 
 ```sql
 -- db/queries/03_error_ratio.sql
+WITH stats AS (
+    SELECT
+        COUNT(*) FILTER (WHERE event_type = 'error') AS error_count,
+        COUNT(*)                                     AS total_count
+    FROM events
+)
 SELECT
-    COUNT(*) FILTER (WHERE event_type = 'error')   AS error_count,
-    COUNT(*)                                       AS total_count,
-    ROUND(
-        100.0 * COUNT(*) FILTER (WHERE event_type = 'error')
-             / NULLIF(COUNT(*), 0),
-        2
-    ) AS error_rate_percentage
-FROM events;
+    error_count,
+    total_count,
+    ROUND(100.0 * error_count / NULLIF(total_count, 0), 2) AS error_rate_percentage
+FROM stats;
 ```
 
 ```
