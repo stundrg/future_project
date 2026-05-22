@@ -14,6 +14,7 @@
 
 ### AWS 운영 시 핵심 변경점
 - 생성기-DB 사이에 **메시지 큐(Kinesis)** 도입 → 디커플링 / 버퍼링 / 재처리
+- **Hot path / Cold path 분리** (Lambda Architecture) — RDS(실시간 분석) + S3(장기 보관)
 - **Managed 서비스** 우선 사용 → 운영 부담 최소화
 - 모니터링/알림 자동화 (CloudWatch + SNS)
 
@@ -32,7 +33,8 @@ flowchart LR
     end
 
     subgraph Consumer["Consumer Layer"]
-        L["Kinesis Firehose<br/>(또는 Lambda)"]
+        L["Lambda 또는<br/>ECS Fargate Consumer"]
+        F["Kinesis Firehose"]
     end
 
     subgraph Storage["Storage Layer"]
@@ -50,9 +52,10 @@ flowchart LR
     end
 
     G -->|put_records| K
-    K --> L
-    L -->|hot data| R
-    L -.->|archive| S
+    K -->|hot path| L
+    K -.->|cold path| F
+    L --> R
+    F --> S
     R --> M
 
     G -.-> CW
@@ -65,12 +68,14 @@ flowchart LR
 
 ## 3. 데이터 플로우
 
-1. **Generator (ECS Fargate task)**: 매초 2~5건 이벤트 생성, Kinesis 에 `put_records` 호출
+1. **Generator (ECS Fargate task)**: 매초 2~5건 이벤트 생성, Kinesis Data Streams 에 `put_records` 호출
 2. **Kinesis Data Streams**: 이벤트 버퍼 (보존 24시간~7일), shard 단위 처리량 보장
-3. **Kinesis Firehose**: shard 에서 데이터 읽어 RDS 로 배치 적재
-4. **RDS PostgreSQL**: hot data 저장 (현재 `events` 테이블 스키마 그대로)
-5. **S3 Cold Archive**: Firehose 가 동시에 S3 로 dump → 장기 보관 + Athena 분석 가능
+3. **Hot path — Lambda 또는 ECS Fargate Consumer**: 스트림을 읽어 RDS PostgreSQL 에 배치 적재 (실시간 분석용)
+4. **Cold path — Kinesis Firehose**: 같은 스트림을 구독해 S3 로 보관 (장기 보관 + Athena 분석)
+5. **RDS PostgreSQL**: hot data 저장 (현재 `events` 테이블 스키마 그대로)
 6. **Managed Grafana**: RDS 를 데이터소스로 → 현재 4 패널 대시보드 그대로 사용
+
+> **왜 Firehose 가 RDS 로 직접 가지 않는가**: Amazon Data Firehose 의 공식 전달 대상은 S3 / Redshift / OpenSearch / Splunk / HTTP endpoint 등이며, RDS PostgreSQL 은 Firehose 의 직접 destination 으로 지원되지 않는다. 따라서 RDS 적재는 별도 컨슈머(Lambda 또는 ECS Fargate) 가 담당하고, Firehose 는 S3 cold path 에서만 사용한다.
 
 ---
 
@@ -79,8 +84,9 @@ flowchart LR
 | 현재 컴포넌트 | AWS 서비스 | 역할 |
 |---------------|-----------|------|
 | `generator` 컨테이너 | **ECS Fargate** | 서버리스 컨테이너 실행 |
-| (없음) | **Kinesis Data Streams** | 디커플링 + 버퍼링 |
-| `db.py` 적재 로직 | **Kinesis Firehose** | 자동 배치 적재 |
+| (없음) | **Kinesis Data Streams** | 이벤트 버퍼 + 디커플링 |
+| `db.py` 적재 로직 | **Lambda 또는 ECS Fargate Consumer** | 스트림 → RDS 배치 적재 (hot path) |
+| (없음) | **Kinesis Firehose** | 스트림 → S3 자동 배치 (cold path) |
 | `postgres` 컨테이너 | **RDS PostgreSQL (Multi-AZ)** | Managed DB |
 | (없음) | **S3** | 장기 보관 + Athena 분석 |
 | `grafana` 컨테이너 | **Amazon Managed Grafana** | Managed 시각화 |
@@ -105,11 +111,22 @@ flowchart LR
   - MSK (Kafka) — 강력하지만 운영 복잡 + 비용↑. 본 규모엔 오버
   - 큐 없이 직접 RDS 적재 — 디커플링 X, DB 장애 직격타
 
-### 적재 → Kinesis Firehose
-- **선택 이유**: 코드 없이 Kinesis → RDS / S3 자동 배치. 운영 부담 최소
+### Hot path 적재 → Lambda 또는 ECS Fargate Consumer
+- **선택 이유**: Kinesis Data Streams 를 RDS 로 적재하려면 자체 컨슈머가 필요 (Firehose 는 RDS 직접 destination 아님)
+- **Lambda vs ECS Fargate Consumer**:
+  - **Lambda**: 트래픽 변동 대응 자동, 운영 단순. 단 RDS 연결 폭주 방지를 위해 **RDS Proxy** 권장
+  - **ECS Fargate Consumer**: 지속 실행이라 connection pool 이 안정적. 본 규모 / 패턴에 무난
 - **대안**:
-  - Lambda 컨슈머 — 더 유연하나 코드/운영 부담
-  - EC2 컨슈머 — 풀 운영 필요
+  - Kinesis Firehose 직결 — RDS 가 destination 아니라 불가
+  - 직접 EC2 컨슈머 — 풀 운영 부담
+
+### Cold path 보관 → Kinesis Firehose + S3
+- **선택 이유**:
+  - Firehose 는 Kinesis Stream → S3 배치 적재를 **코드 없이** 자동 처리하는 정석 패턴
+  - S3 는 저렴한 장기 보관 ($0.023/GB/월) + Athena/Glue 로 ad-hoc 분석 가능
+- **대안**:
+  - Lambda 가 S3 PutObject — 가능하나 Firehose 가 더 단순/안정
+  - 장기 보관 안 함 — 재처리 / 데이터 lake 구성 불가
 
 ### 저장 → RDS PostgreSQL (Multi-AZ)
 - **선택 이유**: 현재 스키마/쿼리 그대로 사용 → 마이그레이션 비용 0. Multi-AZ failover + 자동 백업
@@ -139,10 +156,11 @@ flowchart LR
 |--------|---------|
 | ECS Fargate (1 task) | ~$30 |
 | Kinesis Data Streams (1 shard) | ~$11 + 데이터 비용 |
+| Lambda 또는 ECS Consumer | 트래픽 기반 (~$5~30) |
 | Kinesis Firehose | GB 처리량당 과금 |
 | RDS db.t3.small Multi-AZ | ~$60 |
 | Amazon Managed Grafana | $9/active user |
-| **합계** | **~$120/월** (변동성 있음) |
+| **합계** | **~$130/월** (변동성 있음) |
 
 ### 운영
 - **모니터링**: CloudWatch 가 ECS/Kinesis/RDS 메트릭 자동 수집
@@ -151,6 +169,7 @@ flowchart LR
   - IAM 역할 최소 권한 원칙
   - RDS 는 private subnet, Kinesis VPC endpoint 사용
   - Secrets Manager 로 DB 자격증명 관리 (`.env` 대체)
+  - Lambda 컨슈머일 경우 **RDS Proxy** 로 connection pool 보호
 
 ---
 

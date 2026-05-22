@@ -28,6 +28,7 @@ grafana_data/
 .idea/
 *.swp
 .notes/
+.claude/
 
 # OS
 .DS_Store
